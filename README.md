@@ -1,7 +1,8 @@
 # NIL - rag-copilot
 
-**Live docs:** https://www.neuromorphicinference.com/demos/rag-copilot  
-**Evidence index:** https://www.neuromorphicinference.com/evidence  
+> **Live docs:** https://www.neuromorphicinference.com/demos/rag-copilot  
+> **Evidence index:** https://www.neuromorphicinference.com/evidence  
+> **Demos hub:** https://www.neuromorphicinference.com/demos
 
 ## Goal
 Production-first RAG chatbot with citations, evaluation, and guardrails.
