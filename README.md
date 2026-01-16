@@ -1,4 +1,4 @@
-# nil-rag-copilot
+# NIL - rag-copilot
 
 **Live docs:** https://www.neuromorphicinference.com/demos/rag-copilot  
 **Evidence index:** https://www.neuromorphicinference.com/evidence  
