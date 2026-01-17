@@ -16,10 +16,9 @@ env:
   ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
   ECS_TASK_FAMILY: ${{ secrets.ECS_TASK_FAMILY }}
 
-  # Deve combaciare con containerDefinitions[].name nel ecs-task-def.json
+  # Deve combaciare con containerDefinitions[].name in ecs-task-def.json
   CONTAINER_NAME: nil-rag-copilot-api
 
-  # Versione “umana” (la puoi cambiare quando vuoi)
   APP_VERSION: 0.0.1
 
 jobs:

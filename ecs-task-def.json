@@ -1,0 +1,59 @@
+{
+  "containerDefinitions": [
+    {
+      "name": "nil-rag-copilot-api",
+      "image": "102724112773.dkr.ecr.eu-south-1.amazonaws.com/nil-rag-copilot-api:0.0.1-544ce8f",
+      "cpu": 0,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp",
+          "name": "nil-rag-copilot-api-8000-tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "APP_VERSION",
+          "value": "0.0.1"
+        },
+        {
+          "name": "GIT_SHA",
+          "value": "544ce8f"
+        }
+      ],
+      "environmentFiles": [],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "ulimits": [],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nil-rag-copilot-api",
+          "awslogs-create-group": "true",
+          "awslogs-region": "eu-south-1",
+          "awslogs-stream-prefix": "ecs"
+        },
+        "secretOptions": []
+      },
+      "systemControls": []
+    }
+  ],
+  "family": "nil-rag-copilot-api",
+  "executionRoleArn": "arn:aws:iam::102724112773:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "volumes": [],
+  "placementConstraints": [],
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "3072",
+  "enableFaultInjection": false
+}
