@@ -1,7 +1,8 @@
 import io, os, time, uuid, logging
 import numpy as np
 import pdfplumber
-import openai
+import requests
+from groq import Groq
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="NIL RAG Copilot API", version="0.2.0")
+app = FastAPI(title="NIL RAG Copilot API", version="0.3.0")
 app.add_middleware(CORSMiddleware,
     allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"])
@@ -38,19 +39,18 @@ class EvalResponse(BaseModel):
     test_questions: List[str]; answers: List[str]
 
 _sessions: Dict[str, Any] = {}
-
 MAX_WORDS, CHUNK_SIZE, OVERLAP, TOP_K = 5000, 200, 40, 4
-
-def get_client():
-    return openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+HF_API_URL = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_MODEL}"
 
 def embed(texts: List[str]) -> np.ndarray:
-    client = get_client()
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=texts
-    )
-    vecs = np.array([d.embedding for d in response.data], dtype=np.float32)
+    headers = {"Authorization": f"Bearer {os.environ.get('HF_API_KEY', '')}"}
+    response = requests.post(HF_API_URL, headers=headers,
+        json={"inputs": texts, "options": {"wait_for_model": True}})
+    response.raise_for_status()
+    vecs = np.array(response.json(), dtype=np.float32)
+    if vecs.ndim == 3:
+        vecs = vecs.mean(axis=1)
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
     return vecs / np.maximum(norms, 1e-9)
 
@@ -69,8 +69,7 @@ def validate_words(text: str) -> int:
     return wc
 
 def make_chunks(text: str) -> List[str]:
-    words = text.split()
-    chunks, start = [], 0
+    words = text.split(); chunks = []; start = 0
     while start < len(words):
         end = min(start + CHUNK_SIZE, len(words))
         chunks.append(" ".join(words[start:end]))
@@ -85,20 +84,14 @@ def retrieve(query: str, embeddings: np.ndarray, chunks: List[str]):
     return [(int(i), chunks[i], float(scores[i])) for i in top_idx]
 
 def llm(messages, max_tokens=600, temperature=0.1):
-    return get_client().chat.completions.create(
-        model="gpt-4o-mini", messages=messages,
-        temperature=temperature, max_tokens=max_tokens
+    client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+    return client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens
     ).choices[0].message.content
-from fastapi.responses import JSONResponse
-from fastapi.requests import Request
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={"detail": str(exc)},
-        headers={"Access-Control-Allow-Origin": "*"},
-    )
 @app.get("/health")
 def health(): return {"status": "ok", "version": "0.3.0"}
 
