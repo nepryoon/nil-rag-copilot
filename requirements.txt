@@ -1,2 +1,9 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
+fastapi
+uvicorn[standard]
+python-multipart
+pdfplumber
+sentence-transformers
+faiss-cpu
+openai>=1.0.0
+numpy
+pandas
