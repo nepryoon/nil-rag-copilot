@@ -89,7 +89,16 @@ def llm(messages, max_tokens=600, temperature=0.1):
         model="gpt-4o-mini", messages=messages,
         temperature=temperature, max_tokens=max_tokens
     ).choices[0].message.content
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 @app.get("/health")
 def health(): return {"status": "ok", "version": "0.3.0"}
 
