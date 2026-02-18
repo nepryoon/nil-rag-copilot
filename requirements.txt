@@ -2,5 +2,6 @@ fastapi
 uvicorn[standard]
 python-multipart
 pdfplumber
-openai>=1.0.0
+groq
 numpy
+requests
