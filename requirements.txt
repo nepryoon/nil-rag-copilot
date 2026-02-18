@@ -2,8 +2,5 @@ fastapi
 uvicorn[standard]
 python-multipart
 pdfplumber
-sentence-transformers
-faiss-cpu
 openai>=1.0.0
 numpy
-pandas
