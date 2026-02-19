@@ -1,8 +1,9 @@
 import io, os, time, uuid, logging
 import numpy as np
 import pdfplumber
-import requests
 from groq import Groq
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import normalize
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -11,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="NIL RAG Copilot API", version="0.3.0")
+app = FastAPI(title="NIL RAG Copilot API", version="0.4.0")
 app.add_middleware(CORSMiddleware,
     allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"])
@@ -40,19 +41,6 @@ class EvalResponse(BaseModel):
 
 _sessions: Dict[str, Any] = {}
 MAX_WORDS, CHUNK_SIZE, OVERLAP, TOP_K = 5000, 200, 40, 4
-HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
-
-def embed(texts: List[str]) -> np.ndarray:
-    headers = {"Authorization": f"Bearer {os.environ.get('HF_API_KEY', '')}"}
-    response = requests.post(HF_API_URL, headers=headers,
-        json={"inputs": texts, "options": {"wait_for_model": True}})
-    response.raise_for_status()
-    vecs = np.array(response.json(), dtype=np.float32)
-    if vecs.ndim == 3:
-        vecs = vecs.mean(axis=1)
-    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-    return vecs / np.maximum(norms, 1e-9)
 
 def extract_text(b: bytes) -> str:
     parts = []
@@ -77,8 +65,17 @@ def make_chunks(text: str) -> List[str]:
         start += CHUNK_SIZE - OVERLAP
     return chunks
 
-def retrieve(query: str, embeddings: np.ndarray, chunks: List[str]):
-    q = embed([query])[0]
+def embed_corpus(chunks: List[str]):
+    vectorizer = TfidfVectorizer(max_features=4096)
+    matrix = vectorizer.fit_transform(chunks).toarray().astype(np.float32)
+    return normalize(matrix), vectorizer
+
+def embed_query(query: str, vectorizer) -> np.ndarray:
+    vec = vectorizer.transform([query]).toarray().astype(np.float32)
+    return normalize(vec)[0]
+
+def retrieve(query: str, embeddings: np.ndarray, chunks: List[str], vectorizer):
+    q = embed_query(query, vectorizer)
     scores = embeddings @ q
     top_idx = np.argsort(scores)[::-1][:TOP_K]
     return [(int(i), chunks[i], float(scores[i])) for i in top_idx]
@@ -93,7 +90,7 @@ def llm(messages, max_tokens=600, temperature=0.1):
     ).choices[0].message.content
 
 @app.get("/health")
-def health(): return {"status": "ok", "version": "0.3.0"}
+def health(): return {"status": "ok", "version": "0.4.0"}
 
 @app.post("/api/v1/ingest", response_model=IngestResponse)
 async def ingest_pdf(file: UploadFile = File(...)):
@@ -106,9 +103,9 @@ async def ingest_pdf(file: UploadFile = File(...)):
     try: wc = validate_words(text)
     except ValueError as e: raise HTTPException(422, str(e))
     chunks = make_chunks(text)
-    embeddings = embed(chunks)
+    embeddings, vectorizer = embed_corpus(chunks)
     sid = str(uuid.uuid4())
-    _sessions[sid] = {"embeddings": embeddings, "chunks": chunks, "word_count": wc}
+    _sessions[sid] = {"embeddings": embeddings, "chunks": chunks, "word_count": wc, "vectorizer": vectorizer}
     logger.info(f"Ingest OK session={sid} words={wc} chunks={len(chunks)}")
     return IngestResponse(status="ok", session_id=sid, word_count=wc,
         chunk_count=len(chunks),
@@ -119,7 +116,7 @@ async def chat(req: ChatRequest):
     if req.session_id not in _sessions: raise HTTPException(404, "Session not found.")
     s = _sessions[req.session_id]
     t0 = time.perf_counter()
-    results = retrieve(req.question, s["embeddings"], s["chunks"])
+    results = retrieve(req.question, s["embeddings"], s["chunks"], s["vectorizer"])
     latency = (time.perf_counter() - t0) * 1000
     context = "\n\n".join(f"[Chunk {i}]: {t}" for i, t, _ in results)
     answer = llm([
@@ -134,7 +131,7 @@ async def chat(req: ChatRequest):
 async def run_eval(req: EvalRequest):
     if req.session_id not in _sessions: raise HTTPException(404, "Session not found.")
     s = _sessions[req.session_id]
-    chunks, embeddings = s["chunks"], s["embeddings"]
+    chunks, embeddings, vectorizer = s["chunks"], s["embeddings"], s["vectorizer"]
     questions = []
     step = max(1, len(chunks) // 5)
     for i in range(0, min(5 * step, len(chunks)), step):
@@ -144,21 +141,21 @@ async def run_eval(req: EvalRequest):
     if not questions: raise HTTPException(422, "Cannot generate test questions.")
     answers = []
     for q in questions:
-        r = retrieve(q, embeddings, chunks)
+        r = retrieve(q, embeddings, chunks, vectorizer)
         ctx = "\n\n".join(f"[Chunk {i}]: {t}" for i, t, _ in r)
         answers.append(llm([
             {"role": "system", "content": "Answer only from context."},
             {"role": "user", "content": f"Context:\n{ctx}\n\nQuestion: {q}"}
         ], max_tokens=200, temperature=0.0))
-    rp = float(np.mean([retrieve(q, embeddings, chunks)[0][2] for q in questions]))
-    q_emb = embed(questions)
-    a_emb = embed(answers)
-    ar = float(np.mean(np.sum(q_emb * a_emb, axis=1)))
-    used = {i for q in questions for i, _, _ in retrieve(q, embeddings, chunks)}
+    rp = float(np.mean([retrieve(q, embeddings, chunks, vectorizer)[0][2] for q in questions]))
+    q_vecs = np.array([embed_query(q, vectorizer) for q in questions])
+    a_vecs = np.array([embed_query(a, vectorizer) for a in answers])
+    ar = float(np.mean(np.sum(q_vecs * a_vecs, axis=1)))
+    used = {i for q in questions for i, _, _ in retrieve(q, embeddings, chunks, vectorizer)}
     cc = len(used) / len(chunks) if chunks else 0.0
     return EvalResponse(session_id=req.session_id, test_questions=questions, answers=answers,
         metrics=[
-            MetricResult(name="Retrieval Precision", score=round(rp, 3), description="Avg top-1 cosine score (0–1)"),
+            MetricResult(name="Retrieval Precision", score=round(rp, 3), description="Avg top-1 TF-IDF cosine score (0–1)"),
             MetricResult(name="Answer Relevance", score=round(ar, 3), description="Avg cosine similarity question/answer (0–1)"),
             MetricResult(name="Context Coverage", score=round(cc, 3), description="Fraction of chunks used in retrievals (0–1)"),
         ])
