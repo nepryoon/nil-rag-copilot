@@ -4,4 +4,4 @@ python-multipart
 pdfplumber
 groq
 numpy
-requests
+scikit-learn
