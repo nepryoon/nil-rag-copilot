@@ -41,7 +41,7 @@ class EvalResponse(BaseModel):
 _sessions: Dict[str, Any] = {}
 MAX_WORDS, CHUNK_SIZE, OVERLAP, TOP_K = 5000, 200, 40, 4
 HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-HF_API_URL = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_MODEL}"
+HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
 
 def embed(texts: List[str]) -> np.ndarray:
     headers = {"Authorization": f"Bearer {os.environ.get('HF_API_KEY', '')}"}
